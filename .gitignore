@@ -1,0 +1,12 @@
+__pycache__/
+graphify-out/
+node_modules/
+dist/
+release/
+release-portable/
+release-download/
+release-final*/
+release-stage/
+release-stage*/
+release-updated/
+release-v*/

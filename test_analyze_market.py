@@ -1,0 +1,57 @@
+import unittest
+from unittest.mock import patch
+
+from analyze_market import history_summary, main, price, recommendation, set_comparison, slug_from_url, weighted_median
+
+
+class AnalyzerTests(unittest.TestCase):
+    def test_parses_item_url(self):
+        self.assertEqual(slug_from_url("https://warframe.market/items/strun_prime_set"), "strun_prime_set")
+
+    def test_rejects_other_urls(self):
+        with self.assertRaises(ValueError):
+            slug_from_url("https://example.com/items/strun_prime_set")
+
+    def test_normalizes_bulk_price(self):
+        self.assertEqual(price({"platinum": 24, "perTrade": 3}), 8)
+
+    def test_weighted_median(self):
+        self.assertEqual(weighted_median([(40, 1), (60, 8), (100, 1)]), 60)
+
+    def test_history_summary(self):
+        summary = history_summary([{"median": 40, "volume": 2}, {"median": 60, "volume": 8}])
+        self.assertEqual(summary["fair"], 60)
+        self.assertEqual(summary["volume"], 10)
+
+    def test_waits_when_offline_offer_is_fair(self):
+        history = {"fair": 60, "low": 50, "high": 70, "volume": 10, "days": 2}
+        verdict, _ = recommendation(75, {"platinum": 55, "perTrade": 1}, history)
+        self.assertEqual(verdict, "Wait if you can")
+
+    def test_set_comparison_uses_quantity_in_set_and_component_history(self):
+        class Client:
+            def orders(self, slug):
+                return [{"type": "sell", "visible": True, "platinum": 10 if slug == "barrel" else 5, "perTrade": 1, "user": {"status": "online"}}]
+
+            def history(self, _slug):
+                return [{"median": 12, "volume": 5}]
+
+        items = [
+            {"slug": "set", "tradable": True},
+            {"slug": "barrel", "tradable": True, "quantityInSet": 2, "i18n": {"en": {"name": "Barrel"}}},
+            {"slug": "link", "tradable": True, "quantityInSet": 1, "i18n": {"en": {"name": "Link"}}},
+        ]
+        totals, quotes = set_comparison(Client(), items, "set")
+        self.assertEqual(totals["now"], 25)
+        self.assertEqual(totals["fair"], 36)
+        self.assertEqual(quotes[0]["quantity"], 2)
+
+    def test_rejects_fast_watch_interval(self):
+        with patch("sys.argv", ["analyze_market.py", "https://warframe.market/items/strun_prime_set", "--watch", "--interval", "1"]):
+            with self.assertRaises(SystemExit) as error:
+                main()
+        self.assertIn("at least 20", str(error.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
