@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ComponentBreakdown, MarketSnapshot, Metrics } from "./MarketPanels";
+import { ComponentBreakdown, MarketSnapshot, Metrics, SellAdvice, SetSell } from "./MarketPanels";
 import Sniper from "./Sniper";
 import Icon from "./Icon";
 
@@ -66,8 +66,10 @@ function Result({ result }) {
     <section className={`verdict ${verdictClass}`}>
       <p className="eyebrow">Decision</p><h2>{result.verdict.label}</h2><p>{result.verdict.reason}</p>
     </section>
-    <Metrics history={result.history} market={result.market} />
+    <Metrics history={result.history} market={result.market} buyTarget={result.buyTarget} />
     <MarketSnapshot market={result.market} />
+    <SellAdvice sell={result.sell} />
+    <SetSell setSell={result.setSell} />
     {result.components.length > 0 && <ComponentBreakdown components={result.components} totals={result.totals} setAsk={result.market.bestOnline} />}
     <footer>Updated {new Date(result.generatedAt).toLocaleTimeString()} · Offline last-seen data does not predict return time.</footer>
   </>;

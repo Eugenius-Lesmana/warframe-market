@@ -9,9 +9,10 @@ const price = (order) => order.platinum / Math.max(order.perTrade || 1, 1);
 const status = (order) => order.user?.status || "unknown";
 
 function slugFromUrl(value) {
-  const url = new URL(value);
+  let url;
+  try { url = new URL(String(value).trim()); } catch { throw new Error("Paste a Warframe.market item URL."); }
   if (url.protocol !== "https:" || !["warframe.market", "www.warframe.market"].includes(url.hostname)) throw new Error("Paste a Warframe.market item URL.");
-  const [, kind, slug, ...rest] = url.pathname.split("/");
+  const [, kind, slug, ...rest] = url.pathname.replace(/\/+$/, "").split("/");
   if (kind !== "items" || !slug || rest.length || !/^[a-z0-9_]+$/i.test(slug)) throw new Error("Use a link like https://warframe.market/items/strun_prime_set");
   return slug;
 }
@@ -31,6 +32,10 @@ function activeSells(orders, statuses) {
   return orders.filter((order) => order.type === "sell" && order.visible && (!statuses || statuses.has(status(order)))).sort((a, b) => price(a) - price(b));
 }
 
+function activeBuys(orders, statuses) {
+  return orders.filter((order) => order.type === "buy" && order.visible && statuses.has(status(order))).sort((a, b) => price(b) - price(a));
+}
+
 const whisper = (seller, item, unitPrice, quantity = 1) => `/w ${seller} Hi! I want to buy: "${item}"${quantity > 1 ? ` x${quantity}` : ""} for ${Math.round(unitPrice)} platinum${quantity > 1 ? " each" : ""}. (warframe.market)`;
 const offer = (order, item, itemUrl, quantity = 1) => ({
   id: order.id, seller: order.user?.ingameName || "Unknown", status: order.user?.status, price: price(order), available: Number(order.quantity || 1),
@@ -38,33 +43,54 @@ const offer = (order, item, itemUrl, quantity = 1) => ({
   message: whisper(order.user?.ingameName || "Unknown", item, price(order), quantity),
 });
 
-function weightedMedian(values) {
-  const sorted = values.filter(([, weight]) => weight > 0).toSorted((a, b) => a[0] - b[0]);
-  let total = sorted.reduce((sum, [, weight]) => sum + weight, 0) / 2;
+function weightedQuantile(values, fraction) {
+  const sorted = values.filter(([value, weight]) => value > 0 && weight > 0).toSorted((a, b) => a[0] - b[0]);
+  let remaining = sorted.reduce((sum, [, weight]) => sum + weight, 0) * fraction;
   for (const [value, weight] of sorted) {
-    total -= weight;
-    if (total <= 0) return value;
+    remaining -= weight;
+    if (remaining <= 0) return value;
   }
   return null;
+}
+
+const weightedMedian = (values) => weightedQuantile(values, .5);
+
+// Share of completed-sale volume whose daily median was at or above `value`.
+function shareAtOrAbove(profile, value) {
+  const total = profile.reduce((sum, [, weight]) => sum + weight, 0);
+  return total ? profile.filter(([median]) => median >= value).reduce((sum, [, weight]) => sum + weight, 0) / total : 0;
+}
+
+// A cheap target below the lowest listing that exists today can never trigger, so it is lifted to that floor
+// (capped just under fair value, so the target never means "pay the full price").
+function buyTarget(history, floor) {
+  if (!history) return null;
+  const cheap = Math.min(history.fair * .85, history.low);
+  return floor == null ? cheap : Math.min(history.fair * .97, Math.max(cheap, floor));
+}
+
+function quantile(sorted, fraction) {
+  const position = (sorted.length - 1) * fraction;
+  const lower = Math.floor(position);
+  return sorted[lower] + (sorted[Math.min(lower + 1, sorted.length - 1)] - sorted[lower]) * (position - lower);
 }
 
 function historySummary(rows) {
   const values = rows.filter((row) => row.median && row.volume).map((row) => [Number(row.median), Number(row.volume)]);
   if (!values.length) return null;
   const medians = values.map(([value]) => value).toSorted((a, b) => a - b);
-  const percentile = (fraction) => medians[Math.round((medians.length - 1) * fraction)];
-  return { fair: weightedMedian(values), low: percentile(.25), high: percentile(.75), volume: values.reduce((sum, [, volume]) => sum + volume, 0), days: values.length };
+  return { fair: weightedMedian(values), low: quantile(medians, .25), high: quantile(medians, .75), sellQuick: weightedQuantile(values, .25), sellPatient: weightedQuantile(values, .75), profile: values, volume: values.reduce((sum, [, volume]) => sum + volume, 0), days: values.length };
 }
 
 function age(isoTime) {
-  if (!isoTime) return "unknown";
+  if (!isoTime || Number.isNaN(Date.parse(isoTime))) return "unknown";
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(isoTime)) / 60000));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m ago` : `${minutes}m ago`;
 }
 
-function recommendation(bestOnline, bestOffline, history) {
+function recommendation(bestOnline, bestOffline, history, floor = null) {
   if (!history) return { label: "No historical verdict", reason: "Not enough completed-sale observations to estimate a fair range." };
-  const cheap = Math.min(history.fair * .85, history.low);
+  const cheap = buyTarget(history, floor);
   if (bestOnline == null) return { label: "Wait", reason: "No online seller is available. Return time cannot be predicted." };
   if (bestOnline <= cheap) return { label: "Buy now", reason: `The lowest online ask meets the ${Math.round(cheap)}p cheap target.` };
   if (bestOnline <= history.fair * 1.03) return { label: "Reasonable buy", reason: "The lowest online ask is close to historical fair value." };
@@ -75,7 +101,9 @@ function recommendation(bestOnline, bestOffline, history) {
 async function getHistory(get, slug) {
   const data = await get(`${API_V1}/items/${slug}/statistics`);
   const series = data.payload?.statistics_closed || {};
-  return historySummary(series["90days"] || series["48hours"] || []);
+  const rows = series["90days"]?.length ? series["90days"] : series["48hours"] || [];
+  const summary = historySummary(rows);
+  return summary && { ...summary, window: series["90days"]?.length ? "90 days" : "48 hours" };
 }
 
 async function componentAnalysis(get, item) {
@@ -85,13 +113,15 @@ async function componentAnalysis(get, item) {
   const all = activeSells(orderData.data || []);
   const offline = all.find((order) => !onlineStatuses.has(status(order))) || null;
   const now = online[0] ? price(online[0]) : null;
+  const floor = all[0] ? price(all[0]) : null;
+  const sell = sellAdvice(history, online.map(price), activeBuys(orderData.data || [], onlineStatuses).map(price));
   const name = item.i18n.en.name;
   const url = `https://warframe.market/items/${item.slug}`;
   return {
-    name, slug: item.slug, url, quantity: Number(item.quantityInSet || 1), now, history,
+    name, slug: item.slug, url, quantity: Number(item.quantityInSet || 1), now, history, floor, sell, buyTarget: buyTarget(history, floor),
     offers: ingame.map((order) => offer(order, name, url)),
     offline: offline ? { price: price(offline), lastSeen: age(offline.user?.lastSeen) } : null,
-    verdict: recommendation(now, offline, history),
+    verdict: recommendation(now, offline, history, floor),
   };
 }
 
@@ -114,6 +144,41 @@ function componentBasket(components) {
   return parts.length ? { total, parts } : null;
 }
 
+function sellAdvice(history, onlineAsks, onlineBids) {
+  if (!history) return null;
+  const { sellQuick: quick, fair, sellPatient: patient, profile } = history;
+  const lowestAsk = onlineAsks[0] ?? null;
+  const bestBid = onlineBids[0] ?? null;
+  let list = fair;
+  let note = "No online competitor is listing, so the fair price is a safe starting point.";
+  if (lowestAsk != null) {
+    const undercut = lowestAsk - 1;
+    if (undercut < quick) { list = quick; note = "Online sellers are priced below the range buyers usually pay. Listing at the low end of that range avoids underselling but may take longer."; }
+    else if (undercut > patient) { list = patient; note = "Every online seller is above the usual range, so you can list near the top of it and still be cheapest."; }
+    else { list = undercut; note = "One platinum under the cheapest online seller, inside the range buyers have actually paid."; }
+  }
+  const tier = (label, value, caption) => ({ label, price: value, soldAtOrAbove: shareAtOrAbove(profile, value), caption });
+  return {
+    tiers: [tier("Quick sale", quick, "Most past volume cleared at or above this"), tier("Fair", fair, "Half of past volume cleared at or above this"), tier("Patient", patient, "A quarter of past volume cleared at or above this")],
+    recommended: { ...tier("Suggested listing", list, note), rank: onlineAsks.filter((ask) => ask < list).length + 1, competitors: onlineAsks.length },
+    instant: bestBid != null && bestBid >= quick ? { price: bestBid, soldAtOrAbove: shareAtOrAbove(profile, bestBid) } : null,
+  };
+}
+
+// Sell the finished set, or break it up and sell each part? Also: what a buy-parts-then-sell-set flip would earn.
+function setSellComparison(setSell, components, partsBuyNow) {
+  if (!setSell || !components.length || !components.every((item) => item.sell)) return null;
+  const parts = components.map((item) => ({ name: item.name, quantity: item.quantity, price: item.sell.recommended.price, quickPrice: item.sell.tiers[0].price }));
+  const partsTotal = parts.reduce((sum, part) => sum + part.price * part.quantity, 0);
+  const partsQuickTotal = parts.reduce((sum, part) => sum + part.quickPrice * part.quantity, 0);
+  const setPrice = setSell.recommended.price;
+  return {
+    parts, partsTotal, partsQuickTotal, setPrice, setQuickPrice: setSell.tiers[0].price,
+    better: setPrice >= partsTotal ? "set" : "parts", difference: Math.abs(setPrice - partsTotal),
+    flip: partsBuyNow == null ? null : setPrice - partsBuyNow,
+  };
+}
+
 async function analyze(url) {
   const slug = slugFromUrl(url);
   const get = client();
@@ -127,20 +192,25 @@ async function analyze(url) {
   const ingame = activeSells(orderData.data || [], ingameStatuses);
   const bestOnline = online[0] ? price(online[0]) : null;
   const bestOffline = all.find((order) => !onlineStatuses.has(status(order))) || null;
+  const floor = all[0] ? price(all[0]) : null;
+  const bids = activeBuys(orderData.data || [], onlineStatuses);
   const components = [];
   for (const item of items.filter((item) => item.slug !== slug && item.tradable)) components.push(await componentAnalysis(get, item));
-  const total = (key, reducer) => components.length && components.every((item) => item[key] != null) ? components.reduce((sum, item) => sum + reducer(item), 0) : null;
+  const sellOnSet = sellAdvice(history, online.map(price), bids.map(price));
+  const total = (key, reducer) => components.length > 0 && components.every((item) => item[key] != null) ? components.reduce((sum, item) => sum + reducer(item), 0) : null;
   return {
     title: root?.i18n?.en?.name || slug.replaceAll("_", " "), sourceUrl: url, context: "PC crossplay",
-    verdict: recommendation(bestOnline, bestOffline, history), history,
-    market: { onlineCount: online.length, ingameCount: ingame.length, visibleCount: all.length, bestOnline, onlineAsks: online.slice(0, 5).map(price), ingameOffers: ingame.map((order) => offer(order, root?.i18n?.en?.name || slug.replaceAll("_", " "), url)), offline: bestOffline ? { price: price(bestOffline), lastSeen: age(bestOffline.user?.lastSeen) } : null },
+    verdict: recommendation(bestOnline, bestOffline, history, floor), history,
+    buyTarget: buyTarget(history, floor), sell: sellOnSet,
+    market: { floor, onlineCount: online.length, ingameCount: ingame.length, visibleCount: all.length, bestOnline, onlineAsks: online.slice(0, 5).map(price), ingameOffers: ingame.map((order) => offer(order, root?.i18n?.en?.name || slug.replaceAll("_", " "), url)), offline: bestOffline ? { price: price(bestOffline), lastSeen: age(bestOffline.user?.lastSeen) } : null },
     components, componentBasket: componentBasket(components), totals: {
       now: total("now", (item) => item.now * item.quantity),
       fair: total("history", (item) => item.history.fair * item.quantity),
-      cheap: total("history", (item) => Math.min(item.history.fair * .85, item.history.low) * item.quantity),
+      cheap: total("history", (item) => item.buyTarget * item.quantity),
     },
+    setSell: setSellComparison(sellOnSet, components, total("now", (item) => item.now * item.quantity)),
     generatedAt: new Date().toISOString(),
   };
 }
 
-module.exports = { analyze, slugFromUrl };
+module.exports = { analyze, setSellComparison, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age };

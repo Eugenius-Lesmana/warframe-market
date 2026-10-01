@@ -1,5 +1,7 @@
 # Tenno Market Intelligence — Product Requirements Document
 
+> **Roadmap, not current state.** This is the original vision. The shipped app covers live order analysis, fair-price statistics, set-vs-parts comparison and the sniper; stored snapshots, time-series storage, anomaly and event-aware analysis are not built. See the README for what exists.
+
 **Status:** Draft v1.0  
 **Owner:** Eugen  
 **Repository:** `WarframeMarket`  
