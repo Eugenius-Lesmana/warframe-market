@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { expiry, findDeal } = require("./electron/sniper.cjs");
+const { expiry, findDeal } = require("../electron/sniper.cjs");
 
 const result = (offers = [], basket = null) => ({ market: { ingameOffers: offers }, componentBasket: basket, generatedAt: "2026-01-01T00:00:00Z" });
 

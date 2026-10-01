@@ -4,6 +4,17 @@ Modern Electron + React desktop app for live PC crossplay listings, 90-day compl
 
 The **Sniper** tab keeps up to 20 item watches while the app is open. Choose a price cap or leave it blank to use the calculated cheap target, then set the refresh interval and expiry. Only **Online in game** sellers trigger alerts. Whole-set offers and complete component baskets are checked independently, with every qualifying offer and a copyable in-game whisper shown in the deal card.
 
+## Project layout
+
+```text
+electron/   desktop app back end: API client, statistics, buy/sell advice, sniper (Node)
+src/        desktop app front end (React)
+cli/        command-line analyser (Python, buy side only)
+tests/      unit tests for the app logic and the CLI
+docs/       original product vision (roadmap, not current state)
+builds/     local build output, not committed; download builds from GitHub Releases
+```
+
 ## Run locally
 
 Install dependencies once:
@@ -24,18 +35,18 @@ npm run dev
 npm run package
 ```
 
-This writes a Windows ZIP to `release-download/`. Extract it, then run `Tenno Market.exe`. Paste a Warframe.market URL and select **Analyze**.
+This writes a Windows ZIP to `builds/latest/`. Extract it, then run `Tenno Market.exe`. Paste a Warframe.market URL and select **Analyze**.
 
 ## Command-line fallback
 
 ```powershell
-python analyze_market.py https://warframe.market/items/strun_prime_set
+python cli/analyze_market.py https://warframe.market/items/strun_prime_set
 ```
 
 Watch for a lower price or for an online seller to appear:
 
 ```powershell
-python analyze_market.py https://warframe.market/items/strun_prime_set --watch --target 55 --interval 60
+python cli/analyze_market.py https://warframe.market/items/strun_prime_set --watch --target 55 --interval 60
 ```
 
 Without `--target`, watch mode derives a conservative cheap target from the 90-day history. On Windows it plays a system alert sound; keep the terminal running. It alerts only when a seller first appears after none were online, or when price newly crosses the target.
@@ -43,7 +54,7 @@ Without `--target`, watch mode derives a conservative cheap target from the 90-d
 Run checks:
 
 ```powershell
-python -m unittest -v   # CLI analyser
+python -m unittest discover -s tests -v   # CLI analyser
 npm test                # desktop app logic (market + sniper)
 ```
 

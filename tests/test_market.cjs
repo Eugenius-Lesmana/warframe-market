@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { setSellComparison, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age } = require("./electron/market.cjs");
+const { setSellComparison, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age } = require("../electron/market.cjs");
 
 test("slugFromUrl accepts a trailing slash and rejects junk with a friendly message", () => {
   assert.equal(slugFromUrl("https://warframe.market/items/strun_prime_set/"), "strun_prime_set");
