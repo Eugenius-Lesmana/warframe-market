@@ -38,3 +38,12 @@ export function SellAdvice({ sell }) {
     {instant && <p className="muted">A buyer is bidding {price(instant.price)} right now; selling to them is instant, and {pct(instant.soldAtOrAbove)} of past volume sold at or above that.</p>}
   </section>;
 }
+
+export function SetSell({ setSell }) {
+  if (!setSell) return null;
+  const { parts, partsTotal, partsQuickTotal, setPrice, better, difference, flip } = setSell;
+  return <section className="panel"><div className="panel-title"><div><p className="eyebrow">If you own the parts</p><h2>Sell the set or the parts?</h2></div><span className="count">{better === "set" ? "Sell as a set" : "Sell parts separately"}</span></div>
+    <div className="component-list">{parts.map((part) => <article className="component" key={part.name}><div className="component-name"><strong>{part.name}</strong><span>×{part.quantity}</span></div><div><p className="label">Suggested listing each</p><p>{price(part.price)}</p></div><div><p className="label">Subtotal</p><p>{price(part.price * part.quantity)}</p></div></article>)}</div>
+    <div className="totals"><Metric label="Set listing" value={price(setPrice)} detail="Suggested listing for the whole set" /><Metric label="Parts listed separately" value={price(partsTotal)} detail={`${price(partsQuickTotal)} at quick-sale prices`} /><Metric label={better === "set" ? "Set earns more" : "Parts earn more"} value={`+${price(difference)}`} detail="Before the extra trades selling parts takes" />{flip != null && <Metric label="Buy parts, sell set" value={`${flip >= 0 ? "+" : "-"}${price(Math.abs(flip))}`} detail="Set listing minus today's cheapest online parts" />}</div>
+  </section>;
+}

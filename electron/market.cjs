@@ -114,10 +114,11 @@ async function componentAnalysis(get, item) {
   const offline = all.find((order) => !onlineStatuses.has(status(order))) || null;
   const now = online[0] ? price(online[0]) : null;
   const floor = all[0] ? price(all[0]) : null;
+  const sell = sellAdvice(history, online.map(price), activeBuys(orderData.data || [], onlineStatuses).map(price));
   const name = item.i18n.en.name;
   const url = `https://warframe.market/items/${item.slug}`;
   return {
-    name, slug: item.slug, url, quantity: Number(item.quantityInSet || 1), now, history, floor, buyTarget: buyTarget(history, floor),
+    name, slug: item.slug, url, quantity: Number(item.quantityInSet || 1), now, history, floor, sell, buyTarget: buyTarget(history, floor),
     offers: ingame.map((order) => offer(order, name, url)),
     offline: offline ? { price: price(offline), lastSeen: age(offline.user?.lastSeen) } : null,
     verdict: recommendation(now, offline, history, floor),
@@ -164,6 +165,20 @@ function sellAdvice(history, onlineAsks, onlineBids) {
   };
 }
 
+// Sell the finished set, or break it up and sell each part? Also: what a buy-parts-then-sell-set flip would earn.
+function setSellComparison(setSell, components, partsBuyNow) {
+  if (!setSell || !components.length || !components.every((item) => item.sell)) return null;
+  const parts = components.map((item) => ({ name: item.name, quantity: item.quantity, price: item.sell.recommended.price, quickPrice: item.sell.tiers[0].price }));
+  const partsTotal = parts.reduce((sum, part) => sum + part.price * part.quantity, 0);
+  const partsQuickTotal = parts.reduce((sum, part) => sum + part.quickPrice * part.quantity, 0);
+  const setPrice = setSell.recommended.price;
+  return {
+    parts, partsTotal, partsQuickTotal, setPrice, setQuickPrice: setSell.tiers[0].price,
+    better: setPrice >= partsTotal ? "set" : "parts", difference: Math.abs(setPrice - partsTotal),
+    flip: partsBuyNow == null ? null : setPrice - partsBuyNow,
+  };
+}
+
 async function analyze(url) {
   const slug = slugFromUrl(url);
   const get = client();
@@ -181,19 +196,21 @@ async function analyze(url) {
   const bids = activeBuys(orderData.data || [], onlineStatuses);
   const components = [];
   for (const item of items.filter((item) => item.slug !== slug && item.tradable)) components.push(await componentAnalysis(get, item));
+  const sellOnSet = sellAdvice(history, online.map(price), bids.map(price));
   const total = (key, reducer) => components.length > 0 && components.every((item) => item[key] != null) ? components.reduce((sum, item) => sum + reducer(item), 0) : null;
   return {
     title: root?.i18n?.en?.name || slug.replaceAll("_", " "), sourceUrl: url, context: "PC crossplay",
     verdict: recommendation(bestOnline, bestOffline, history, floor), history,
-    buyTarget: buyTarget(history, floor), sell: sellAdvice(history, online.map(price), bids.map(price)),
+    buyTarget: buyTarget(history, floor), sell: sellOnSet,
     market: { floor, onlineCount: online.length, ingameCount: ingame.length, visibleCount: all.length, bestOnline, onlineAsks: online.slice(0, 5).map(price), ingameOffers: ingame.map((order) => offer(order, root?.i18n?.en?.name || slug.replaceAll("_", " "), url)), offline: bestOffline ? { price: price(bestOffline), lastSeen: age(bestOffline.user?.lastSeen) } : null },
     components, componentBasket: componentBasket(components), totals: {
       now: total("now", (item) => item.now * item.quantity),
       fair: total("history", (item) => item.history.fair * item.quantity),
       cheap: total("history", (item) => item.buyTarget * item.quantity),
     },
+    setSell: setSellComparison(sellOnSet, components, total("now", (item) => item.now * item.quantity)),
     generatedAt: new Date().toISOString(),
   };
 }
 
-module.exports = { analyze, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age };
+module.exports = { analyze, setSellComparison, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age };

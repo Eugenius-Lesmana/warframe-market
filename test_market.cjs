@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age } = require("./electron/market.cjs");
+const { setSellComparison, slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age } = require("./electron/market.cjs");
 
 test("slugFromUrl accepts a trailing slash and rejects junk with a friendly message", () => {
   assert.equal(slugFromUrl("https://warframe.market/items/strun_prime_set/"), "strun_prime_set");
@@ -91,4 +91,20 @@ test("sellAdvice offers an instant sale only when a bid reaches the quick-sale p
   const history = sellHistory();
   assert.equal(sellAdvice(history, [70], [10]).instant, null);
   assert.equal(sellAdvice(history, [70], [60]).instant.price, 60);
+});
+
+test("setSellComparison picks the better of set vs parts and computes the flip", () => {
+  const sell = (quick, rec) => ({ recommended: { price: rec }, tiers: [{ price: quick }] });
+  const parts = [{ name: "A", quantity: 2, sell: sell(8, 10) }, { name: "B", quantity: 1, sell: sell(18, 20) }];
+  const better = setSellComparison(sell(40, 50), parts, 35);
+  assert.equal(better.partsTotal, 40);
+  assert.equal(better.partsQuickTotal, 34);
+  assert.equal(better.better, "set");
+  assert.equal(better.difference, 10);
+  assert.equal(better.flip, 15);
+  assert.equal(setSellComparison(sell(30, 30), parts, null).better, "parts");
+  assert.equal(setSellComparison(sell(30, 30), parts, null).flip, null);
+  assert.equal(setSellComparison(null, parts, 1), null);
+  assert.equal(setSellComparison(sell(1, 1), [], 1), null);
+  assert.equal(setSellComparison(sell(1, 1), [{ name: "A", quantity: 1, sell: null }], 1), null);
 });
