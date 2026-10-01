@@ -9,9 +9,10 @@ const price = (order) => order.platinum / Math.max(order.perTrade || 1, 1);
 const status = (order) => order.user?.status || "unknown";
 
 function slugFromUrl(value) {
-  const url = new URL(value);
+  let url;
+  try { url = new URL(String(value).trim()); } catch { throw new Error("Paste a Warframe.market item URL."); }
   if (url.protocol !== "https:" || !["warframe.market", "www.warframe.market"].includes(url.hostname)) throw new Error("Paste a Warframe.market item URL.");
-  const [, kind, slug, ...rest] = url.pathname.split("/");
+  const [, kind, slug, ...rest] = url.pathname.replace(/\/+$/, "").split("/");
   if (kind !== "items" || !slug || rest.length || !/^[a-z0-9_]+$/i.test(slug)) throw new Error("Use a link like https://warframe.market/items/strun_prime_set");
   return slug;
 }
@@ -48,16 +49,21 @@ function weightedMedian(values) {
   return null;
 }
 
+function quantile(sorted, fraction) {
+  const position = (sorted.length - 1) * fraction;
+  const lower = Math.floor(position);
+  return sorted[lower] + (sorted[Math.min(lower + 1, sorted.length - 1)] - sorted[lower]) * (position - lower);
+}
+
 function historySummary(rows) {
   const values = rows.filter((row) => row.median && row.volume).map((row) => [Number(row.median), Number(row.volume)]);
   if (!values.length) return null;
   const medians = values.map(([value]) => value).toSorted((a, b) => a - b);
-  const percentile = (fraction) => medians[Math.round((medians.length - 1) * fraction)];
-  return { fair: weightedMedian(values), low: percentile(.25), high: percentile(.75), volume: values.reduce((sum, [, volume]) => sum + volume, 0), days: values.length };
+  return { fair: weightedMedian(values), low: quantile(medians, .25), high: quantile(medians, .75), volume: values.reduce((sum, [, volume]) => sum + volume, 0), days: values.length };
 }
 
 function age(isoTime) {
-  if (!isoTime) return "unknown";
+  if (!isoTime || Number.isNaN(Date.parse(isoTime))) return "unknown";
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(isoTime)) / 60000));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m ago` : `${minutes}m ago`;
 }
@@ -75,7 +81,9 @@ function recommendation(bestOnline, bestOffline, history) {
 async function getHistory(get, slug) {
   const data = await get(`${API_V1}/items/${slug}/statistics`);
   const series = data.payload?.statistics_closed || {};
-  return historySummary(series["90days"] || series["48hours"] || []);
+  const rows = series["90days"]?.length ? series["90days"] : series["48hours"] || [];
+  const summary = historySummary(rows);
+  return summary && { ...summary, window: series["90days"]?.length ? "90 days" : "48 hours" };
 }
 
 async function componentAnalysis(get, item) {
@@ -129,7 +137,7 @@ async function analyze(url) {
   const bestOffline = all.find((order) => !onlineStatuses.has(status(order))) || null;
   const components = [];
   for (const item of items.filter((item) => item.slug !== slug && item.tradable)) components.push(await componentAnalysis(get, item));
-  const total = (key, reducer) => components.length && components.every((item) => item[key] != null) ? components.reduce((sum, item) => sum + reducer(item), 0) : null;
+  const total = (key, reducer) => components.length > 0 && components.every((item) => item[key] != null) ? components.reduce((sum, item) => sum + reducer(item), 0) : null;
   return {
     title: root?.i18n?.en?.name || slug.replaceAll("_", " "), sourceUrl: url, context: "PC crossplay",
     verdict: recommendation(bestOnline, bestOffline, history), history,
@@ -143,4 +151,4 @@ async function analyze(url) {
   };
 }
 
-module.exports = { analyze, slugFromUrl };
+module.exports = { analyze, slugFromUrl, weightedMedian, historySummary, recommendation, componentBasket, age };

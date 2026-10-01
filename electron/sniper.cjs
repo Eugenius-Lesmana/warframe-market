@@ -30,6 +30,7 @@ function createSniper({ storagePath, notify, publish }) {
     watch.status = "checking"; watch.error = ""; save(); send();
     try {
       const result = await analyze(watch.url);
+      if (!watches.includes(watch)) return;
       const target = watch.targetPrice ?? cheap(result.history);
       Object.assign(watch, { title: result.title, lastCheckedAt: result.generatedAt, threshold: target, status: "watching", error: "" });
       const hit = target == null ? null : findDeal(result, target);
@@ -44,6 +45,7 @@ function createSniper({ storagePath, notify, publish }) {
         }
       } else {
         watch.hit = null;
+        watch.notificationKey = null;
       }
     } catch (error) {
       watch.status = "error"; watch.error = error.message || "Could not refresh this watch."; watch.lastCheckedAt = new Date().toISOString();
@@ -53,7 +55,7 @@ function createSniper({ storagePath, notify, publish }) {
   }
 
   function add({ url, targetPrice, intervalSeconds, durationMinutes }) {
-    if (watches.length >= 20) throw new Error("Keep up to 20 active watches.");
+    if (watches.filter((item) => item.status !== "expired").length >= 20) throw new Error("Keep up to 20 active watches.");
     const numericTarget = targetPrice === "" || targetPrice == null ? null : Number(targetPrice);
     if (numericTarget != null && (!Number.isFinite(numericTarget) || numericTarget <= 0)) throw new Error("Target price must be a positive number.");
     const interval = Math.max(30, Math.min(1800, Number(intervalSeconds) || 60));

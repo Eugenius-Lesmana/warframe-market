@@ -173,7 +173,12 @@ def watch(url: str, target: float | None, interval: int) -> None:
     previous_good = False
     try:
         while True:
-            online = active_sells(client.orders(slug), online_only=True)
+            try:
+                online = active_sells(client.orders(slug), online_only=True)
+            except RuntimeError as error:
+                print(f"{datetime.now().astimezone():%H:%M:%S} | check failed, will retry: {error}", flush=True)
+                time.sleep(interval)
+                continue
             best = price(online[0]) if online else None
             good = best is not None and best <= target
             now = datetime.now().astimezone().strftime("%H:%M:%S")

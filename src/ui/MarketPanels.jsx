@@ -3,7 +3,7 @@ const price = (value) => value == null ? "—" : `${Math.round(value)}p`;
 export function Metrics({ history, market }) {
   const cheap = history && Math.min(history.fair * .85, history.low);
   return <section className="metrics">
-    <Metric label="Fair price" value={history ? `~${price(history.fair)}` : "Unavailable"} detail={history ? `${history.volume.toLocaleString()} completed sales` : "No sale history"} />
+    <Metric label="Fair price" value={history ? `~${price(history.fair)}` : "Unavailable"} detail={history ? `${history.volume.toLocaleString()} completed sales (${history.window || "90 days"})` : "No sale history"} />
     <Metric label="Typical range" value={history ? `${price(history.low)} – ${price(history.high)}` : "—"} detail={history ? `${history.days} daily observations` : ""} />
     <Metric label="Cheap target" value={history ? `≤ ${price(cheap)}` : "—"} detail="A patient-buy goal" />
     <Metric label="Best online ask" value={price(market.bestOnline)} detail={`${market.onlineCount} online sellers`} />

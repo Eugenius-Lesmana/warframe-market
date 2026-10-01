@@ -43,7 +43,8 @@ Without `--target`, watch mode derives a conservative cheap target from the 90-d
 Run checks:
 
 ```powershell
-python -m unittest -v
+python -m unittest -v   # CLI analyser
+npm test                # desktop app logic (market + sniper)
 ```
 
 What it reports:
@@ -54,12 +55,29 @@ What it reports:
 - **Buy now / reasonable buy / wait / expensive now:** comparison of the lowest online ask to historical sales and lower-priced offline alternatives.
 - **Parts comparison:** uses the API's `quantityInSet` field, so repeated components are counted correctly. It shows each part's live ask, fair price, cheap target, offline alternative, and the buy-now/fair totals for the complete set.
 
+## How the numbers work
+
+Think of it as a stock screen for a game market. The 90-day history gives one row per day (median price, volume).
+
+1. **Fair price** = volume-weighted median of the daily medians. A day with 40 trades counts 40 times, so thin days and one-off outliers barely move it. It is a median, so a single absurd day cannot drag it.
+2. **Typical range** = 25th and 75th percentile of the daily medians (linear interpolation, same in the CLI and the app).
+3. **Cheap target** = `min(0.85 × fair, 25th percentile)`.
+4. **Verdict** compares the lowest *online* ask with those numbers: at or below the cheap target is *Buy now*, within 3% above fair is *Reasonable buy*, otherwise *Wait if you can* (if a cheaper offline seller exists) or *Expensive now*. No history means no verdict.
+5. **Component basket** (app only) fills each part's quantity from the cheapest in-game sellers, splitting across sellers when stock is short, and returns nothing if any part cannot be filled.
+
+There is no moving average or forecasting: the statistics are descriptive, not predictive.
+
 Limits:
 
 - Live orders are listings, not confirmed trades.
 - An offline seller's `lastSeen` timestamp does not predict when they will return.
 - The sample intentionally targets PC with crossplay enabled. Do not compare its results with another market context.
-- No data is stored locally; it uses the marketplace's current API data each run.
+- If the API has no 90-day series the app falls back to the 48-hour series and labels it as such.
+- Thresholds (0.85, 1.03) are judgement calls, not fitted to data.
+- Unofficial and not affiliated with warframe.market or Digital Extremes. The app waits 0.4 s between requests; keep it that way.
+- The CLI and the app implement the same logic twice (Python and JavaScript), so changes must be made in both.
+- Mods with several ranks share one history series, so their stats mix ranks.
+- No data is stored locally except the sniper watch list; it uses the marketplace's current API data each run.
 
 Data endpoints:
 
