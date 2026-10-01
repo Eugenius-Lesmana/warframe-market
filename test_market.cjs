@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { slugFromUrl, weightedMedian, historySummary, recommendation, componentBasket, age } = require("./electron/market.cjs");
+const { slugFromUrl, buyTarget, sellAdvice, weightedQuantile, weightedMedian, historySummary, recommendation, componentBasket, age } = require("./electron/market.cjs");
 
 test("slugFromUrl accepts a trailing slash and rejects junk with a friendly message", () => {
   assert.equal(slugFromUrl("https://warframe.market/items/strun_prime_set/"), "strun_prime_set");
@@ -17,7 +17,7 @@ test("weightedMedian handles empty, zero-weight and single rows", () => {
 
 test("historySummary matches the Python quartiles and drops empty rows", () => {
   const summary = historySummary([{ median: 40, volume: 2 }, { median: 60, volume: 8 }, { median: 50, volume: 1 }, { median: 0, volume: 9 }]);
-  assert.deepEqual(summary, { fair: 60, low: 45, high: 55, volume: 11, days: 3 });
+  assert.deepEqual({ fair: summary.fair, low: summary.low, high: summary.high, volume: summary.volume, days: summary.days }, { fair: 60, low: 45, high: 55, volume: 11, days: 3 });
   assert.equal(historySummary([{ median: 0, volume: 4 }]), null);
 });
 
@@ -44,4 +44,51 @@ test("componentBasket splits a part across sellers and fails when stock is short
 test("age returns 'unknown' for missing or malformed timestamps", () => {
   assert.equal(age(undefined), "unknown");
   assert.equal(age("garbage"), "unknown");
+});
+
+test("buyTarget is lifted to the lowest listing but stays under fair", () => {
+  const history = { fair: 70, low: 55 };
+  assert.equal(buyTarget(history, null), 55);
+  assert.equal(buyTarget(history, 60), 60);
+  assert.equal(buyTarget(history, 40), 55);
+  assert.equal(buyTarget(history, 90), 70 * .97);
+  assert.equal(buyTarget(null, 60), null);
+});
+
+test("an online ask just above a lifted target is not a Buy now", () => {
+  const history = { fair: 70, low: 55 };
+  assert.equal(recommendation(60, null, history, 60).label, "Buy now");
+  assert.notEqual(recommendation(62, null, history, 60).label, "Buy now");
+});
+
+test("weightedQuantile orders the tiers", () => {
+  const rows = [[40, 1], [50, 4], [60, 4], [80, 1]];
+  assert.deepEqual([.25, .5, .75].map((q) => weightedQuantile(rows, q)), [50, 50, 60]);
+});
+
+const sellHistory = () => historySummary([40, 50, 50, 60, 60, 70, 80].map((median) => ({ median, volume: 10 })));
+
+test("sellAdvice undercuts the cheapest online seller inside the usual range", () => {
+  const advice = sellAdvice(sellHistory(), [65, 70, 75], []);
+  assert.equal(advice.recommended.price, 64);
+  assert.equal(advice.recommended.rank, 1);
+  assert.ok(advice.tiers[0].price <= advice.tiers[1].price && advice.tiers[1].price <= advice.tiers[2].price);
+});
+
+test("sellAdvice never lists below the quick-sale price when sellers undercut", () => {
+  const history = sellHistory();
+  assert.equal(sellAdvice(history, [30, 31], []).recommended.price, history.sellQuick);
+});
+
+test("sellAdvice caps at the patient price and falls back to fair with no competitors", () => {
+  const history = sellHistory();
+  assert.equal(sellAdvice(history, [200], []).recommended.price, history.sellPatient);
+  assert.equal(sellAdvice(history, [], []).recommended.price, history.fair);
+  assert.equal(sellAdvice(null, [], []), null);
+});
+
+test("sellAdvice offers an instant sale only when a bid reaches the quick-sale price", () => {
+  const history = sellHistory();
+  assert.equal(sellAdvice(history, [70], [10]).instant, null);
+  assert.equal(sellAdvice(history, [70], [60]).instant.price, 60);
 });

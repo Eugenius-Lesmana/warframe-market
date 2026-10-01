@@ -113,11 +113,22 @@ def age(iso_time: str | None) -> str:
     return f"{minutes // 60}h {minutes % 60}m ago" if minutes >= 60 else f"{minutes}m ago"
 
 
-def recommendation(best_online: float | None, best_offline: dict | None, history: dict[str, float | int] | None) -> tuple[str, str]:
+def floor_price(orders: list[dict]) -> float | None:
+    sells = active_sells(orders, online_only=False)
+    return price(sells[0]) if sells else None
+
+
+def buy_target(history: dict[str, float | int], floor: float | None = None) -> float:
+    """Cheap target, lifted to the lowest listing that exists today (a lower price cannot be bought) but kept under fair."""
+    cheap = min(float(history["fair"]) * 0.85, float(history["low"]))
+    return cheap if floor is None else min(float(history["fair"]) * 0.97, max(cheap, floor))
+
+
+def recommendation(best_online: float | None, best_offline: dict | None, history: dict[str, float | int] | None, floor: float | None = None) -> tuple[str, str]:
     if not history:
         return ("No historical verdict", "There are not enough completed-sale observations to estimate a fair range.")
     fair, low = float(history["fair"]), float(history["low"])
-    cheap = min(fair * 0.85, low)
+    cheap = buy_target(history, floor)
     if best_online is None:
         return ("Wait", "No online seller is available. The tool cannot predict when an offline seller will return.")
     if best_online <= cheap:
@@ -139,15 +150,17 @@ def set_comparison(client: MarketClient, set_items: list[dict], root_slug: str) 
         history = history_summary(client.history(item["slug"]))
         now = price(online[0]) if online else None
         quantity = int(item.get("quantityInSet") or 1)
-        verdict, reason = recommendation(now, offline, history)
+        floor = floor_price(orders)
+        verdict, reason = recommendation(now, offline, history, floor)
         quotes.append({
             "name": item["i18n"]["en"]["name"], "quantity": quantity, "now": now,
             "offline": offline, "history": history, "verdict": verdict, "reason": reason,
+            "target": buy_target(history, floor) if history else None,
         })
     totals = {
         "now": sum(quote["now"] * quote["quantity"] for quote in quotes) if all(quote["now"] is not None for quote in quotes) else None,
         "fair": sum(float(quote["history"]["fair"]) * quote["quantity"] for quote in quotes) if all(quote["history"] for quote in quotes) else None,
-        "cheap": sum(min(float(quote["history"]["fair"]) * .85, float(quote["history"]["low"])) * quote["quantity"] for quote in quotes) if all(quote["history"] for quote in quotes) else None,
+        "cheap": sum(quote["target"] * quote["quantity"] for quote in quotes) if all(quote["history"] for quote in quotes) else None,
     }
     return totals, quotes
 
@@ -167,7 +180,7 @@ def watch(url: str, target: float | None, interval: int) -> None:
     if target is None:
         if not history:
             raise ValueError("This item has no usable price history; pass --target <platinum> to watch it.")
-        target = min(float(history["fair"]) * 0.85, float(history["low"]))
+        target = buy_target(history, floor_price(client.orders(slug)))
     print(f"Watching {slug} every {interval}s. Alert target: <={target:.0f}p. Press Ctrl+C to stop.")
     previous_online: int | None = None
     previous_good = False
@@ -204,13 +217,14 @@ def report(url: str) -> str:
     offline = active_sells(orders, online_only=False)
     best_online = price(online[0]) if online else None
     best_offline = next((order for order in offline if seller_status(order) not in ONLINE), None)
-    verdict, reason = recommendation(best_online, best_offline, history)
+    floor = floor_price(orders)
+    verdict, reason = recommendation(best_online, best_offline, history, floor)
     lines = [f"\n{title} - PC crossplay", "=" * (len(title) + 15)]
     lines += [f"Verdict: {verdict}", reason, ""]
     if history:
         lines += [
             f"90-day completed sales: {history['volume']} trades across {history['days']} daily observations",
-            f"Fair price: ~{history['fair']:.0f}p | typical range: {history['low']:.0f}-{history['high']:.0f}p | cheap target: <={min(float(history['fair']) * .85, float(history['low'])):.0f}p",
+            f"Fair price: ~{history['fair']:.0f}p | typical range: {history['low']:.0f}-{history['high']:.0f}p | cheap target: <={buy_target(history, floor):.0f}p",
         ]
     else:
         lines.append("90-day completed sales: unavailable")
@@ -228,7 +242,7 @@ def report(url: str) -> str:
             lines.append(f"{label}: online {quote['now']:.0f}p each" if quote["now"] is not None else f"{label}: no online seller")
             if quote["history"]:
                 history = quote["history"]
-                cheap = min(float(history["fair"]) * .85, float(history["low"]))
+                cheap = quote["target"]
                 lines.append(f"    fair ~{history['fair']:.0f}p each | cheap <= {cheap:.0f}p | {quote['verdict']}")
             if quote["offline"]:
                 lines.append(f"    lower offline option: {price(quote['offline']):.0f}p each - last seen {age(quote['offline'].get('user', {}).get('lastSeen'))}")

@@ -3,7 +3,6 @@ const { randomUUID } = require("crypto");
 const { analyze, slugFromUrl } = require("./market.cjs");
 
 const read = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; } };
-const cheap = (history) => history && Math.min(history.fair * .85, history.low);
 const expiry = (durationMinutes, now = Date.now()) => durationMinutes === "" || durationMinutes == null ? null : new Date(now + Math.max(1, Math.min(1440, Number(durationMinutes) || 60)) * 60000).toISOString();
 
 function findDeal(result, target) {
@@ -31,7 +30,7 @@ function createSniper({ storagePath, notify, publish }) {
     try {
       const result = await analyze(watch.url);
       if (!watches.includes(watch)) return;
-      const target = watch.targetPrice ?? cheap(result.history);
+      const target = watch.targetPrice ?? result.buyTarget;
       Object.assign(watch, { title: result.title, lastCheckedAt: result.generatedAt, threshold: target, status: "watching", error: "" });
       const hit = target == null ? null : findDeal(result, target);
       if (hit) {

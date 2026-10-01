@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from analyze_market import history_summary, main, price, recommendation, set_comparison, slug_from_url, weighted_median
+from analyze_market import buy_target, history_summary, main, price, recommendation, set_comparison, slug_from_url, weighted_median
 
 
 class AnalyzerTests(unittest.TestCase):
@@ -66,6 +66,13 @@ class AnalyzerTests(unittest.TestCase):
 
     def test_trailing_slash_url(self):
         self.assertEqual(slug_from_url("https://warframe.market/items/strun_prime_set/"), "strun_prime_set")
+
+    def test_cheap_target_is_lifted_to_the_market_floor(self):
+        history = {"fair": 70, "low": 55, "high": 80, "volume": 10, "days": 2}
+        self.assertEqual(buy_target(history), 55)
+        self.assertEqual(buy_target(history, 60), 60)
+        self.assertEqual(buy_target(history, 90), 70 * 0.97)
+        self.assertEqual(buy_target(history, 40), 55)
 
     def test_rejects_fast_watch_interval(self):
         with patch("sys.argv", ["analyze_market.py", "https://warframe.market/items/strun_prime_set", "--watch", "--interval", "1"]):

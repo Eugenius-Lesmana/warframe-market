@@ -61,9 +61,10 @@ Think of it as a stock screen for a game market. The 90-day history gives one ro
 
 1. **Fair price** = volume-weighted median of the daily medians. A day with 40 trades counts 40 times, so thin days and one-off outliers barely move it. It is a median, so a single absurd day cannot drag it.
 2. **Typical range** = 25th and 75th percentile of the daily medians (linear interpolation, same in the CLI and the app).
-3. **Cheap target** = `min(0.85 × fair, 25th percentile)`.
+3. **Cheap target** = `min(0.85 × fair, 25th percentile)`, then lifted to the cheapest listing that exists today (online or offline) and capped at 97% of fair. A target below the market floor can never be bought, so it would never alert.
 4. **Verdict** compares the lowest *online* ask with those numbers: at or below the cheap target is *Buy now*, within 3% above fair is *Reasonable buy*, otherwise *Wait if you can* (if a cheaper offline seller exists) or *Expensive now*. No history means no verdict.
-5. **Component basket** (app only) fills each part's quantity from the cheapest in-game sellers, splitting across sellers when stock is short, and returns nothing if any part cannot be filled.
+5. **Sell advice** (app only) answers "what should I list it for?" from what buyers have actually paid. Quick, fair and patient prices are the volume-weighted 25th, 50th and 75th percentiles of daily medians, each shown with the share of 90-day volume that sold at or above it. The suggested listing is one platinum under the cheapest online seller, kept inside the quick-to-patient range so you neither undersell nor price above what buyers pay. If an online buyer's bid already reaches the quick-sale price, it is shown as an instant sale.
+6. **Component basket** (app only) fills each part's quantity from the cheapest in-game sellers, splitting across sellers when stock is short, and returns nothing if any part cannot be filled.
 
 There is no moving average or forecasting: the statistics are descriptive, not predictive.
 
