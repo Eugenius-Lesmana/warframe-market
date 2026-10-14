@@ -2,7 +2,11 @@
 
 Modern Electron + React desktop app for live PC crossplay listings, 90-day completed-sale statistics, and set-part comparisons.
 
+![Analysing an item: verdict, fair price, live order book and sell advice](docs/images/analysis.png)
+
 The **Sniper** tab keeps up to 20 item watches while the app is open. Choose a price cap or leave it blank to use the calculated cheap target, then set the refresh interval and expiry. Only **Online in game** sellers trigger alerts. Whole-set offers and complete component baskets are checked independently, with every qualifying offer and a copyable in-game whisper shown in the deal card.
+
+![Sniper: a watch that found deals on the whole set and on a complete parts basket (player names blurred)](docs/images/sniper.png)
 
 ## Project layout
 
@@ -77,6 +81,8 @@ Think of it as a stock screen for a game market. The 90-day history gives one ro
 5. **Sell advice** (app only) answers "what should I list it for?" from what buyers have actually paid. Quick, fair and patient prices are the volume-weighted 25th, 50th and 75th percentiles of daily medians, each shown with the share of 90-day volume that sold at or above it. The suggested listing is one platinum under the cheapest online seller, kept inside the quick-to-patient range so you neither undersell nor price above what buyers pay. If an online buyer's bid already reaches the quick-sale price, it is shown as an instant sale.
 6. **Sell the set or the parts?** (app only) applies the same sell advice to every part and to the set, then compares the set listing with the parts' total. It also shows what buying the parts at today's cheapest online asks and selling the finished set would earn. Selling parts takes more trades, so a small gap favours the set.
 7. **Component basket** (app only) fills each part's quantity from the cheapest in-game sellers, splitting across sellers when stock is short, and returns nothing if any part cannot be filled.
+
+![Sell the set or the parts: suggested listing per part, totals, and the set-versus-parts margin](docs/images/set-vs-parts.png)
 
 There is no moving average or forecasting: the statistics are descriptive, not predictive.
 
